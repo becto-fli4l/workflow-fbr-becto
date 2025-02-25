@@ -1,0 +1,29 @@
+name: publish-to-ghcr
+on: workflow_dispatch
+permissions: write-all
+
+jobs:
+  publish-to-ghcr:
+    runs-on: ubuntu-latest
+    steps:
+
+      - name: 'pull docker image from docker hub'
+        run: |
+           docker pull nettworksevtooling/fli4l-buildroot-container:latest
+           docker pull nettworksevtooling/mkfli4l-container:latest
+
+      - name: 'rename docker image from docker hub'
+        run: |
+           docker image tag nettworksevtooling/fli4l-buildroot-container ghcr.io/becto-fli4l/fli4l-old-buildroot:latest
+           docker image tag nettworksevtooling/mkfli4l-container ghcr.io/becto-fli4l/fli4l-old-mkfli4l:latest
+
+      - uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: 'push images to ghcr'
+        run: |
+           docker push ghcr.io/becto-fli4l/fli4l-old-buildroot:latest
+           docker push ghcr.io/becto-fli4l/fli4l-old-mkfli4l:latest
