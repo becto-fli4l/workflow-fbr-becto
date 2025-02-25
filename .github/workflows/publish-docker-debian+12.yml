@@ -1,0 +1,65 @@
+name: publish-docker-debian12
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: '0 0 */7 * *'
+
+permissions: write-all
+
+jobs:
+  publish-docker-debian12:
+    runs-on: ubuntu-latest
+    steps:
+
+      - name: 'apt-get: install zsh'
+        run: sudo apt-get update; sudo apt-get install zsh
+
+      - name: 'prepare github-runner -> environment'
+        run: |
+          echo "TAG_TIME=$(date +'%Y.%m.%d')" >> $GITHUB_ENV
+          echo "BUILD_TIME=$(date +'%Y.%m.%d-%T')" >> $GITHUB_ENV
+        shell: zsh {0}
+
+      - uses: actions/checkout@v4
+        with:
+          repository: 'becto-fli4l/workflow-fbr-becto'
+          ref: 'trunk'
+          path: 'workflow-fbr-becto'
+
+      - name: clone -> fli4l-upstream-fraro
+        env:
+          GH_USER: ${{ secrets.GH_USER }}
+          GH_TOKEN: ${{ secrets.GH_TOKEN }}
+        run: |
+          cd ${{ github.workspace }}
+          git clone https://$GH_USER:$GH_TOKEN@github.com/becto-fli4l/fli4l-upstream-fraro.git
+
+      - name: 'create fli4l-upstream-fraro tarball'
+        run: |
+           cd ${{ github.workspace }}/fli4l-upstream-fraro/packages/src && tar czf ${{ github.workspace }}/_src_fli4l-upstream-fraro.tar.gz *
+        shell: zsh {0}
+
+      - uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: build -> push docker image / fli4l-ng-buildroot
+        run: |
+         docker build . \
+             --tag ghcr.io/becto-fli4l/fli4l-ng-buildroot:latest \
+             --tag ghcr.io/becto-fli4l/fli4l-ng-buildroot:$TAG_TIME \
+             -f ${{ github.workspace }}/workflow-fbr-becto/docker_debian12-slim/Dockerfile
+         docker push ghcr.io/becto-fli4l/fli4l-ng-buildroot:latest
+         docker push ghcr.io/becto-fli4l/fli4l-ng-buildroot:$TAG_TIME
+
+      - name: build -> push docker image / fli4l-ng-buildroot-dev
+        run: |
+         docker build . \
+             --tag ghcr.io/becto-fli4l/fli4l-ng-buildroot-dev:latest \
+             --tag ghcr.io/becto-fli4l/fli4l-ng-buildroot-dev:$TAG_TIME \
+             -f ${{ github.workspace }}/workflow-fbr-becto/docker_debian12-slim+dev/Dockerfile
+         docker push ghcr.io/becto-fli4l/fli4l-ng-buildroot-dev:latest
+         docker push ghcr.io/becto-fli4l/fli4l-ng-buildroot-dev:$TAG_TIME
