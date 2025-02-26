@@ -1,0 +1,100 @@
+name: fli4l-r60808-becto
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  fli4l-r60808-becto:
+    runs-on: ubuntu-latest
+    env:
+      FBR_SOURCE: /data/work/packages/src/src/fbr
+      FLI4L_SOURCE: fli4l-60808-becto
+
+    steps:
+
+      - name: 'apt-get: install zsh'
+        run: sudo apt-get update; sudo apt-get install zsh
+
+      - name: 'prepare github-runner -> environment'
+        run: |
+          echo "TAG_TIME=$(date +'%Y.%m.%d')" >> $GITHUB_ENV
+          echo "BUILD_TIME=$(date +'%Y.%m.%d-%T')" >> $GITHUB_ENV
+        shell: zsh {0}
+
+      - uses: actions/checkout@v4
+        with:
+          repository: 'becto-fli4l/${{ env.FLI4L_SOURCE }}'
+          ref: 'trunk'
+          path: '${{ env.FLI4L_SOURCE }}'
+
+      - name: get -> git-shortHash from ${{ env.FLI4L_SOURCE }}
+        run:  |
+          cd ${{ github.workspace }}
+          cd ./${{ env.FLI4L_SOURCE }} && echo "sha_short=$(git rev-parse --short HEAD)" >> $GITHUB_ENV
+        shell: zsh {0}
+
+      - name: create -> fbr-build-directory
+        run:  |
+          cd ${{ github.workspace }}
+          mkdir FBR-${{ env.sha_short }}
+        shell: zsh {0}
+
+      - name: 'pull image from ghcr -> fli4l-old-buildroot:latest'
+        run: docker pull ghcr.io/becto-fli4l/fli4l-old-buildroot:latest
+        shell: zsh {0}
+
+      - uses: becto-fli4l/docker-run-action@main
+        with:
+          image: ghcr.io/becto-fli4l/fli4l-old-buildroot:latest
+          options: -v ${{ github.workspace }}/FBR-${{ env.sha_short }}:/root/.fbr -v ${{ github.workspace }}/${{ env.FLI4L_SOURCE }}:/data/work
+          run: |
+            mkdir -p /root/.fbr/ENV
+            dpkg -l > /root/.fbr/ENV/_docker_image-dpkg.log
+            J=1 FBR_ARCH=x86_64 FBR_TIDY=y FBR_BRANCH=trunk FBR_CATEGORY=4.0 ${{ env.FBR_SOURCE }}/fbr-make toolchain linux legal-info \
+            || echo "::error:: -> build.log" && exit 0
+
+      - name: 'create workflow-fbr-becto tarball'
+        run: |
+           cd ${{ github.workspace }}/FBR-${{ env.sha_short }} && tar czf ${{ github.workspace }}/_fbr_${{ env.FLI4L_SOURCE }}-${{ env.sha_short }}.tar.gz *
+        shell: zsh {0}
+
+      - name: 'show build tree structure'
+        run: |
+           tree -L 3 ${{ github.workspace }}
+        shell: zsh {0}
+
+      - name: 'archive production artifacts -> create workflow-fbr-becto tarball'
+        uses: actions/upload-artifact@v4
+        with:
+          name: _${{ env.FLI4L_SOURCE }}-${{ env.sha_short }}.tar.gz
+          path: |
+            ${{ github.workspace }}/_fbr_${{ env.FLI4L_SOURCE }}-${{ env.sha_short }}.tar.gz
+
+      - name: 'create docker history and build information -> _release.md:'
+        run: |
+          cd ${{ github.workspace }}/FBR-${{ env.sha_short }}
+          echo "#### docker history / build: ####" >> _release.md
+          echo >> _release.md
+          echo "~~~" >> _release.md
+          docker history ghcr.io/becto-fli4l/fli4l-old-buildroot:latest >> _release.md || true
+          echo "~~~" >> _release.md
+          echo "---" >> _release.md
+          echo "Dockerimage: https://github.com/users/becto-fli4l/packages/container/package/fli4l-old-buildroot:latest" >> _release.md
+          echo "Build from: https://github.com/becto-fli4l/${{ env.FLI4L_SOURCE }} | -> ${{ env.sha_short }}" >> _release.md
+        shell: zsh {0}
+
+      - name: 'create workflow-fbr-becto -> release info'
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG: ${{ github.ref_name }}
+        run: |
+          gh release create "$TAG"_"$TAG_TIME"_"${{ env.sha_short }}" \
+              --repo="$GITHUB_REPOSITORY" \
+              --title="$TAG+$BUILD_TIME-${{ env.sha_short }}" \
+              --notes-file="${{ github.workspace }}/FBR-${{ env.sha_short }}/_release.md" \
+              ${{ github.workspace }}/FBR-${{ env.sha_short }}/ENV/_docker_image-dpkg.log
+              # ${{ github.workspace }}/_fbr_${{ env.FLI4L_SOURCE }}-${{ env.sha_short }}.tar.gz
+        shell: bash
